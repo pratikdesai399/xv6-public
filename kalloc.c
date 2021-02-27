@@ -9,18 +9,31 @@
 #include "mmu.h"
 #include "spinlock.h"
 
+#define NULL 0
+
 void freerange(void *vstart, void *vend);
 extern char end[]; // first address after kernel loaded from ELF file
                    // defined by the kernel linker script in kernel.ld
-
+/*
 struct run {
   struct run *next;
+};
+*/
+
+struct NODE{
+	struct NODE *next;
+};
+
+struct queue{
+	struct NODE *front;
+	struct NODE *back;
 };
 
 struct {
   struct spinlock lock;
   int use_lock;
-  struct run *freelist;
+  struct queue q;
+  //struct run *freelist;
 } kmem;
 
 // Initialization happens in two phases.
@@ -33,7 +46,13 @@ kinit1(void *vstart, void *vend)
 {
   initlock(&kmem.lock, "kmem");
   kmem.use_lock = 0;
-  freerange(vstart, vend);
+  
+  
+  //Initialize the queue
+  kmem.q.front = kmem.q.back = NULL;
+  
+ 	freerange(vstart, vend);
+  
 }
 
 void
@@ -59,7 +78,7 @@ freerange(void *vstart, void *vend)
 void
 kfree(char *v)
 {
-  struct run *r;
+  //struct run *r;
 
   if((uint)v % PGSIZE || v < end || V2P(v) >= PHYSTOP)
     panic("kfree");
@@ -69,9 +88,23 @@ kfree(char *v)
 
   if(kmem.use_lock)
     acquire(&kmem.lock);
+    
+  /*
   r = (struct run*)v;
   r->next = kmem.freelist;
   kmem.freelist = r;
+  */
+  
+  //If queue is empty
+  if(kmem.q.front == NULL){
+  	kmem.q.front = kmem.q.back = (struct NODE*)v;
+  }else{
+  	kmem.q.back->next = (struct NODE*)v;
+  	kmem.q.back = (struct NODE*)v;
+  }
+  
+  kmem.q.back->next = NULL;
+  
   if(kmem.use_lock)
     release(&kmem.lock);
 }
@@ -82,13 +115,26 @@ kfree(char *v)
 char*
 kalloc(void)
 {
-  struct run *r;
+  struct NODE *r;
 
   if(kmem.use_lock)
     acquire(&kmem.lock);
+    
+  /*
   r = kmem.freelist;
   if(r)
     kmem.freelist = r->next;
+    
+  */
+  
+  r = kmem.q.front;
+  if(r != NULL){
+  	kmem.q.front = r->next;
+  }else{
+  
+  	kmem.q.back = NULL;
+  
+  }
   if(kmem.use_lock)
     release(&kmem.lock);
   return (char*)r;
